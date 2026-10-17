@@ -1,0 +1,205 @@
+
+'use server';
+
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { revalidatePath } from 'next/cache';
+import { format } from 'date-fns';
+import { getAutoClassification, getBalanceFromPlanName } from '@/lib/plan-utils';
+
+export async function createAdmin(prevState: any, formData: FormData) {
+  const fullName = formData.get('full_name') as string;
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
+
+  if (!fullName || !email || !password) {
+    return { error: 'All fields are required.', success: false };
+  }
+  
+  const { error } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName, role: 'admin' },
+  });
+
+  if (error) return { error: `Failed to create admin: ${error.message}`, success: false };
+  revalidatePath('/admin/dashboard');
+  return { success: true, error: null };
+}
+
+export async function deleteUser(userId: string) {
+    if (!userId) return { error: 'User ID is required.' };
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) return { error: `Failed to delete user: ${error.message}` };
+    revalidatePath('/admin/dashboard');
+    return { success: true };
+}
+
+export async function deleteMultipleUsers(userIds: string[]) {
+  if (!userIds || userIds.length === 0) return { error: 'No user IDs provided.' };
+  const deletePromises = userIds.map(id => supabaseAdmin.auth.admin.deleteUser(id));
+  await Promise.allSettled(deletePromises);
+  revalidatePath('/admin/dashboard');
+  return { success: true };
+}
+
+/**
+ * Hardened Legacy Approve Function (v5.0 Referral Engine)
+ * Marks user as approved and credits the referrer ONLY once.
+ */
+export async function approveUserPayment(userId: string) {
+    if (!userId) return { error: 'User ID is required.' };
+
+    const { data: profile, error: fetchError } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+    
+    if (fetchError || !profile) return { error: 'User profile not found.' };
+    
+    // Safety exit
+    if (profile.is_approved && profile.referral_commission_paid) return { success: true, message: 'User is already processed.' };
+
+    const classification = getAutoClassification(profile.plan_purchased || '');
+    const isPTP = profile.account_model === 'passthrupay' || (profile.plan_purchased?.toLowerCase().includes('ptp'));
+    const isKycVerified = profile.kyc_status === 'verified';
+
+    // 1. Update Profile
+    await supabaseAdmin.from('profiles').update({ 
+        is_approved: true,
+        account_classification: classification
+    }).eq('id', userId);
+
+    // 2. REFERRAL PROTOCOL: Credit referrer ONLY if never paid before (v5.0 Hardened)
+    const paidAmount = profile.final_amount_paid || 0;
+    if (profile.referred_by && !profile.referral_commission_paid && paidAmount > 0) {
+        const { data: settings } = await supabaseAdmin.from('payment_details').select('referral_commission_percentage').eq('id', 1).single();
+        const commPercent = settings?.referral_commission_percentage || 10;
+        const commissionAmount = Math.floor((paidAmount * commPercent) / 100);
+
+        if (commissionAmount > 0) {
+            const { data: referrer } = await supabaseAdmin.from('profiles').select('referral_balance').eq('id', profile.referred_by).single();
+            const newBalance = (referrer?.referral_balance || 0) + commissionAmount;
+
+            // Credit balance and set lock flag
+            await supabaseAdmin.from('profiles').update({ referral_balance: newBalance }).eq('id', profile.referred_by);
+            await supabaseAdmin.from('profiles').update({ referral_commission_paid: true }).eq('id', userId);
+
+            await supabaseAdmin.from('referrals').insert({
+                referrer_id: profile.referred_by,
+                referred_id: userId,
+                commission_amount: commissionAmount,
+                plan_name: profile.plan_purchased || 'Evaluation Plan'
+            });
+            console.log(`[Referral Engine] Dashboard Credit: ₹${commissionAmount} to ${profile.referred_by}`);
+        }
+    }
+    
+    // 3. Sync first account in user_accounts
+    const { data: firstAccount } = await supabaseAdmin
+        .from('user_accounts')
+        .select('id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+    if (firstAccount) {
+        await supabaseAdmin.from('user_accounts')
+            .update({ 
+                is_approved: true,
+                account_classification: classification,
+                status: isKycVerified || isPTP ? 'active' : 'pending'
+            })
+            .eq('id', firstAccount.id);
+    }
+
+    // Automations (Email Webhooks)
+    const paymentWebhookUrl = process.env.MAKE_WEBHOOK_URL;
+    if (paymentWebhookUrl) {
+        const payload = {
+            user_name: profile.full_name,
+            email: profile.email,
+            order_sn: profile.order_sn || profile.transaction_id || 'N/A',
+            plan_purchased: profile.plan_purchased,
+            account_size: getBalanceFromPlanName(profile.plan_purchased || '').toLocaleString('en-IN'),
+            final_amount_paid: profile.final_amount_paid,
+            payment_method: 'Manual/Direct',
+            datetime: format(new Date(profile.created_at), 'dd-MM-yyyy HH:mm:ss'),
+        };
+        fetch(paymentWebhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(e => console.error(e));
+    }
+
+    revalidatePath('/admin/dashboard');
+    revalidatePath('/welcome');
+    revalidatePath('/referrals');
+    return { success: true };
+}
+
+/**
+ * Signup Hourly Velocity Action (IST)
+ * UPDATED v4.0: Focuses strictly on isolated hourly windows without cumulative summing.
+ */
+export async function getSignupHourlyStats() {
+    try {
+        let allProfiles: any[] = [];
+        let page = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        console.log("[Report Engine] Initiating full deep-scan for total user accuracy...");
+
+        while (hasMore) {
+            const { data: chunk, error } = await supabaseAdmin
+                .from('profiles')
+                .select('created_at')
+                .neq('role', 'admin')
+                .range(page * pageSize, (page + 1) * pageSize - 1);
+            
+            if (error) throw error;
+
+            if (chunk && chunk.length > 0) {
+                allProfiles = [...allProfiles, ...chunk];
+                if (chunk.length < pageSize) hasMore = false;
+                else page++;
+            } else {
+                hasMore = false;
+            }
+        }
+
+        // 24 bins for 24 hours
+        const bins = Array(24).fill(0);
+
+        allProfiles.forEach(p => {
+            const utcDate = new Date(p.created_at);
+            // Convert to IST: UTC + 5:30
+            const istOffset = 5.5 * 60 * 60 * 1000;
+            const istDate = new Date(utcDate.getTime() + istOffset);
+            const hour = istDate.getHours();
+            bins[hour]++;
+        });
+
+        // Generate report with isolated Hourly Volume only
+        const report = bins.map((count, hour) => {
+            const startHour = hour;
+            const endHour = (hour + 1) % 24;
+
+            const formatHour = (h: number) => {
+                const label = h < 12 ? 'AM' : 'PM';
+                const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                return `${displayH} ${label}`;
+            };
+            
+            return {
+                'Time Slot (IST)': `${formatHour(startHour)} - ${formatHour(endHour)}`,
+                'Signup Count': count
+            };
+        });
+
+        return { data: report, totalCaptured: allProfiles.length };
+    } catch (e: any) {
+        console.error("[Report Action] Error:", e);
+        return { error: e.message };
+    }
+}

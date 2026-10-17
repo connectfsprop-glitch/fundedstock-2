@@ -1,0 +1,76 @@
+'use server';
+
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { revalidatePath } from 'next/cache';
+
+/**
+ * CRUD Actions for the Trading Plans Protocol.
+ * Syncs the public pricing and internal arena.
+ * UPDATED v12.5: Added Coupon Eligibility Control.
+ */
+
+export async function upsertPlan(formData: FormData) {
+    const id = formData.get('id') as string | null;
+    const title = formData.get('title') as string;
+    const size = formData.get('size') as string;
+    const price = parseFloat(formData.get('price') as string || '0');
+    const usdPrice = formData.get('usd_price') ? parseFloat(formData.get('usd_price') as string) : null;
+    const category = formData.get('category') as string;
+    const marketType = formData.get('market_type') as 'indian' | 'forex';
+    const isPopular = formData.get('is_popular') === 'on';
+    const isNew = formData.get('is_new') === 'on';
+    const isLimited = formData.get('is_limited') === 'on';
+    const isFeatured = formData.get('is_featured') === 'on';
+    const isActive = formData.get('is_active') === 'on';
+    const couponsEnabled = formData.get('coupons_enabled') === 'on';
+    const sortOrder = parseInt(formData.get('sort_order') as string || '0');
+
+    if (!title || !size || !category) {
+        return { error: 'Required fields: Title, Size, and Category.' };
+    }
+
+    const planData = {
+        title,
+        size,
+        price,
+        usd_price: usdPrice,
+        category,
+        market_type: marketType,
+        is_popular: isPopular,
+        is_new: isNew,
+        is_limited: isLimited,
+        is_featured: isFeatured,
+        is_active: isActive,
+        coupons_enabled: couponsEnabled,
+        sort_order: sortOrder
+    };
+
+    try {
+        if (id) {
+            const { error } = await supabaseAdmin.from('plans').update(planData).eq('id', id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabaseAdmin.from('plans').insert(planData);
+            if (error) throw error;
+        }
+
+        revalidatePath('/pricing');
+        revalidatePath('/forex-pricing');
+        revalidatePath('/admin/plans');
+        revalidatePath('/welcome');
+        return { success: true };
+    } catch (e: any) {
+        console.error("[Plans Protocol] Error:", e);
+        return { error: e.message };
+    }
+}
+
+export async function deletePlan(id: string) {
+    const { error } = await supabaseAdmin.from('plans').delete().eq('id', id);
+    if (error) return { error: error.message };
+    
+    revalidatePath('/pricing');
+    revalidatePath('/admin/plans');
+    revalidatePath('/welcome');
+    return { success: true };
+}
