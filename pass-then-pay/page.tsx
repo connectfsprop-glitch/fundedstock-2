@@ -1,0 +1,189 @@
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import Link from 'next/link';
+import { FundedStockLogo } from '@/components/ui/logo';
+import { ArrowRight, Check, Target, Wallet, BarChart, Trophy, Ban, X, ShieldQuestion, BadgePercent, Clock, AlertTriangle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { createClient } from '@/lib/supabase/server';
+
+const Feature = ({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) => (
+    <div className="text-center">
+        <div className="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-primary/10 mb-4 text-primary">
+            {icon}
+        </div>
+        <h3 className="text-lg font-bold text-foreground">{title}</h3>
+        <p className="text-muted-foreground">{description}</p>
+    </div>
+);
+
+const HowItWorksStep = ({ step, icon, title, description, subtext }: { step: string, icon: React.ReactNode, title: string, description: string, subtext: string }) => (
+    <Card className="bg-card/50">
+        <CardHeader>
+            <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-primary">{step}</p>
+                <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</div>
+            </div>
+            <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <p className="text-muted-foreground">{description}</p>
+            <p className="text-xs font-semibold text-primary mt-2">{subtext}</p>
+        </CardContent>
+    </Card>
+);
+
+const PlanCard = ({ size, fee, activationFee, isPopular }: { size: string, fee: string, activationFee: string, isPopular?: boolean }) => (
+    <Card className={cn("flex flex-col text-center border-2", isPopular ? "border-primary shadow-2xl shadow-primary/20" : "border-border")}>
+        {isPopular && <div className="text-xs font-bold bg-primary text-primary-foreground py-1 rounded-t-lg -mt-px">🔥 Most Popular</div>}
+        <CardHeader>
+            <CardTitle className="text-4xl font-bold">₹{size}</CardTitle>
+            <CardDescription>PassThenPay</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-grow space-y-6">
+            <div className="space-y-4">
+                <div className="border-t border-b border-border/50 py-3">
+                    <p className="text-muted-foreground">Pay Now to Start</p>
+                    <p className="text-3xl font-bold text-primary">₹{fee}</p>
+                    <p className="text-xs text-muted-foreground">All you risk if you fail</p>
+                </div>
+                <div className="text-center">
+                    <p className="text-muted-foreground">Pay After You Pass</p>
+                    <p className="text-xl font-bold">₹{activationFee}</p>
+                    <p className="text-xs text-green-500">✓ Charged only on passing</p>
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+                <p className="text-left">Profit target: <span className="font-bold">6%</span></p>
+                <p className="text-left">Daily loss limit: <span className="font-bold">4%</span></p>
+                <p className="text-left">Overall drawdown: <span className="font-bold">8%</span></p>
+                <p className="text-left">Min. days: <span className="font-bold">5</span></p>
+                <p className="text-left col-span-2">Reward share: <span className="font-bold">80%</span></p>
+            </div>
+            <Button asChild className="w-full mt-auto" size="lg">
+                <Link href={`/signup?plan=${size} PassThenPay&price=${fee}`}>Start for ₹{fee} →</Link>
+            </Button>
+        </CardContent>
+    </Card>
+);
+
+const FaqItem = ({ question, answer }: { question: string, answer: string }) => (
+    <AccordionItem value={question} className="border-border/50">
+        <AccordionTrigger className="text-left hover:no-underline">{question}</AccordionTrigger>
+        <AccordionContent className="text-muted-foreground">{answer}</AccordionContent>
+    </AccordionItem>
+);
+
+export default async function PassThenPayPage() {
+    return (
+        <div className="dark">
+            <main className="bg-background text-foreground min-h-screen relative overflow-hidden">
+                <div className="absolute inset-0 h-full w-full bg-transparent bg-[linear-gradient(to_right,hsl(var(--border)_/_0.1)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)_/_0.1)_1px,transparent_1px)] bg-auto" style={{ backgroundSize: '32px 32px' }}></div>
+                <div className="absolute inset-0 bg-[radial-gradient(circle_800px_at_50%_0px,hsl(var(--primary)/0.15),transparent)]"></div>
+
+                <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-sm border-b border-border">
+                    <div className="container mx-auto flex items-center justify-between px-4 sm:px-6 lg:px-8 h-20">
+                        <Link href="/" className="flex items-center gap-2 group">
+                            <FundedStockLogo className="h-8 w-auto text-primary group-hover:scale-110 transition-transform" />
+                            <span className="font-bold text-lg text-white">FundedStock</span>
+                        </Link>
+                        <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-muted-foreground">
+                            <a href="#how-it-works" className="hover:text-foreground">How it works</a>
+                            <a href="#plans" className="hover:text-foreground">Plans</a>
+                            <a href="#faq" className="hover:text-foreground">FAQ</a>
+                        </nav>
+                        <Button asChild>
+                            <a href="#plans">Start Now <ArrowRight className="ml-2"/></a>
+                        </Button>
+                    </div>
+                </header>
+
+                <div className="relative isolate px-6 lg:px-8">
+                    <section className="container mx-auto max-w-4xl pt-12 pb-24 sm:pb-32 text-center">
+                        <Badge variant="outline" className="mb-4 border-primary/50 text-primary">🎯 India's simplest trading evaluation is here</Badge>
+                        <h1 className="text-4xl font-bold tracking-tighter sm:text-6xl !leading-[1.15]">1 test. 6% target. <br /> Pay only after you pass.</h1>
+                        <p className="mt-6 text-lg leading-8 text-muted-foreground">No more paying thousands before you even trade. Start for just ₹239. Complete 1 simple evaluation. Pay the full fee only after you pass.</p>
+                        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+                            <Button asChild size="lg"><a href="#plans">Start PassThenPay — From ₹239 <ArrowRight className="ml-2"/></a></Button>
+                            <Button asChild variant="link"><a href="#how-it-works">See how it works ↓</a></Button>
+                        </div>
+                        <p className="mt-4 text-xs text-muted-foreground">No hidden charges. Full activation fee only charged after you pass. 100% simulated trading.</p>
+                    </section>
+
+                    <section id="how-it-works" className="py-24 sm:py-32">
+                        <div className="text-center mb-16">
+                            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">3 simple steps. That's it.</h2>
+                            <p className="mt-4 text-lg text-muted-foreground">We made it as simple as possible. No confusing phases, no complicated rules.</p>
+                        </div>
+                        <div className="grid md:grid-cols-3 gap-8">
+                            <HowItWorksStep step="Step 01 of 03" icon={<Wallet />} title="Pay ₹239. Start Today." description="Pick your account size — ₹5L, ₹10L, ₹25L, or ₹50L. Pay just ₹239–₹599 as registration. Your evaluation account is activated instantly. No KYC needed to start trading." subtext="This is ALL you pay upfront" />
+                            <HowItWorksStep step="Step 02 of 03" icon={<BarChart />} title="Trade. Hit 6%. Pass." description="Trade NSE & BSE stocks, options, and futures in our simulated environment. Reach just 6% profit while staying within the risk rules. No time limit — take as long as you need. Just 1 test. That's it." subtext="No time pressure. No second phase." />
+                            <HowItWorksStep step="Step 03 of 03" icon={<Trophy />} title="Pass → Pay → Get Funded." description="You passed? Congratulations. Now pay the activation fee. Your funded account goes live. Start earning 80% Performance Rewards — paid every 14 days directly to your UPI or bank." subtext="Pay full fee ONLY after passing" />
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-8 mt-8">
+                            <Card className="bg-destructive/10 border-destructive/20 text-center p-6">
+                                <h3 className="font-bold text-destructive text-lg">If you FAIL</h3>
+                                <p className="text-2xl font-bold text-foreground">You lose ₹239–₹599</p>
+                                <p className="text-muted-foreground">That's it. Nothing more. Re-register anytime and try again.</p>
+                            </Card>
+                            <Card className="bg-green-500/10 border-green-500/20 text-center p-6">
+                                <h3 className="font-bold text-green-400 text-lg">If you PASS</h3>
+                                <p className="text-2xl font-bold text-foreground">Pay activation fee → Earn 80%</p>
+                                <p className="text-muted-foreground">Pay the activation fee. Get funded. Keep 80% of all Performance Rewards.</p>
+                            </Card>
+                        </div>
+                    </section>
+
+                    <section id="plans" className="py-24 sm:py-32">
+                        <div className="text-center mb-16">
+                            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Choose your account size</h2>
+                            <p className="mt-4 text-lg text-muted-foreground">Same 1-phase evaluation. Same 6% target. Same rules. Just pick your size.</p>
+                        </div>
+                        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+                            <PlanCard size="5 Lakh" fee="239" activationFee="7,999" />
+                            <PlanCard size="10 Lakh" fee="359" activationFee="12,999" isPopular />
+                            <PlanCard size="25 Lakh" fee="479" activationFee="24,999" />
+                            <PlanCard size="50 Lakh" fee="599" activationFee="44,999" />
+                        </div>
+                        <p className="text-center text-xs text-muted-foreground mt-8">*Registration fee is non-refundable. Activation fee charged only after successful evaluation. All trading is 100% simulated. Performance Rewards are professional fees, not investment returns.</p>
+                    </section>
+                    
+                    <section id="faq" className="py-24 sm:py-32 max-w-3xl mx-auto">
+                        <div className="text-center mb-16">
+                            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Still have questions?</h2>
+                            <p className="mt-4 text-lg text-muted-foreground">Quick answers. No jargon.</p>
+                        </div>
+                        <Accordion type="single" collapsible className="w-full">
+                            <FaqItem 
+                                question="If I fail, how much money will I lose?" 
+                                answer="Only ₹239–₹599 — which was the registration fee. The activation fee (₹7,999–₹44,999) is only charged when you pass. There's no big loss on failing. Want to try again? Just pay the registration fee again and start over."
+                            />
+                            <FaqItem 
+                                question="In how many days do I have to hit the 6% target?" 
+                                answer="There is no time limit. Do it in 2 weeks or 3 months — it's up to you. Just remember one thing — if you don't make any trade for 30 consecutive days, the account becomes dormant. So, keep trading regularly."
+                            />
+                            <FaqItem 
+                                question="When do I have to pay the activation fee after passing?" 
+                                answer="When you pass — by meeting the 6% profit target, minimum 5 trading days, and following all rules — the system automatically sends a notification. You have 72 hours to pay the activation fee. After payment, the funded account is activated instantly."
+                            />
+                            <FaqItem 
+                                question="How and when will I get Performance Rewards?" 
+                                answer="You can request a payout every 14 days — provided you have traded for a minimum of 5 days in that cycle and have accumulated a minimum reward of ₹2,000. Payment comes directly to your UPI or bank account within 3–5 business days. Your registration fee is refunded on your 3rd successful payout."
+                            />
+                            <FaqItem 
+                                question="What is the difference between PassThenPay and the 2-Step evaluation?" 
+                                answer="PassThenPay has only 1 phase — a 6% target, that's it. The 2-Step evaluation has 2 phases — 8% in Phase 1 and then 5% in Phase 2. PassThenPay is simpler and more beginner-friendly."
+                            />
+                            <FaqItem 
+                                question="Is this trading in the real market?" 
+                                answer="No. All trading on FundedStock is done in a 100% simulated environment. FundedStock is not a SEBI-registered broker or investment adviser. Performance Rewards are professional fees — not investment returns or guaranteed income. Your personal money never goes into the market."
+                            />
+                        </Accordion>
+                    </section>
+                </div>
+            </main>
+        </div>
+    );
+}
